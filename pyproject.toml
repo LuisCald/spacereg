@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "space-reg"
+version = "0.0.0"
+description = "Conley standard errors and spatial HAC utilities"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+py-modules = ["spacereg"]
