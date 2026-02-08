@@ -106,7 +106,10 @@ class SpatialStandardErrorsComputer(object):
         self._bread = 0.5 * (self._bread + self._bread.T)
 
         # sandwich estimator for standard errors of M-estimators
-        var = self._bread @ self._filling @ self._bread.T
+        # Finite-sample degrees-of-freedom correction: n / (n - k)
+        n = len(self._outcome_var)
+        k = self._rhs_vars.shape[1]
+        var = (n / (n - k)) * self._bread @ self._filling @ self._bread.T
         self._se = np.sqrt(np.clip(np.diagonal(var), 0.0, None))
 
         # construct return df
@@ -153,7 +156,10 @@ def compute_conley_standard_errors_all_models(model, data, y, x, coordinates, cu
     bread = 0.5 * (bread + bread.T)
 
     # sandwich estimator for standard errors of M-estimators
-    var = bread @ filling @ bread.T
+    # Finite-sample degrees-of-freedom correction: n / (n - k)
+    n = len(y_vec)
+    k = x_mat.shape[1]
+    var = (n / (n - k)) * bread @ filling @ bread.T
     se = np.sqrt(np.clip(np.diagonal(var), 0.0, None))
 
     # construct return df
