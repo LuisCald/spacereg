@@ -207,6 +207,29 @@ def _compute_sandwich_elements(model, data, y, x, coordinates, cutoffs, kernel="
     return filling, bread
 
 
+def _compute_weight_matrix(coord_values, cutoff_values, kernel="bartlett"):
+    """Compute the full (n x n) spatial weight matrix using vectorized operations.
+
+    Args:
+        coord_values: (np.ndarray) n x D array of coordinates
+        cutoff_values: (np.ndarray) n x D array of cutoff values
+        kernel: (str) 'bartlett' or 'uniform'
+
+    Returns:
+        W: (np.ndarray) n x n weight matrix
+    """
+    n = coord_values.shape[0]
+    W = np.ones((n, n), dtype=float)
+    for w in range(coord_values.shape[1]):
+        dist = np.abs(coord_values[:, w:w+1] - coord_values[:, w])  # (n, n)
+        cutoff_w = cutoff_values[:, w]  # (n,) — broadcasts over columns
+        if kernel == "bartlett":
+            W *= np.maximum(0.0, 1.0 - dist / cutoff_w)
+        else:  # uniform
+            W *= (dist < cutoff_w).astype(float)
+    return W
+
+
 def _bartlett_window_estimator(data, x, residuals, coordinates, cutoffs, kernel="bartlett"):
     """Construct weights and reweight residuals
 
@@ -220,7 +243,7 @@ def _bartlett_window_estimator(data, x, residuals, coordinates, cutoffs, kernel=
 
     Returns:
         weight_matrix: (np.array) K x K matrix. Computed using the selected kernel
-        
+
     """
     kernel = str(kernel).strip().lower()
     if kernel not in {"bartlett", "uniform"}:
@@ -235,26 +258,11 @@ def _bartlett_window_estimator(data, x, residuals, coordinates, cutoffs, kernel=
     coord_values = data[coordinates].to_numpy(dtype=float, copy=False)
     cutoff_values = np.column_stack([data[c].to_numpy(dtype=float, copy=False) for c in cutoffs])
 
-    # initialize matrices
-    weight_matrix = np.zeros((x_values.shape[1], x_values.shape[1]), dtype=float)
+    # Vectorized: scores = residuals * X, then meat = scores.T @ W @ scores
+    scores = residuals * x_values  # (n, K)
+    W = _compute_weight_matrix(coord_values, cutoff_values, kernel)
+    weight_matrix = scores.T @ W @ scores  # (K, K)
 
-    # implement weighting
-    n_obs = x_values.shape[0]
-    for i in range(n_obs):
-        window = np.ones(n_obs, dtype=float)
-
-        for w in range(coord_values.shape[1]):
-            dist = np.abs(coord_values[:, w] - coord_values[i, w])
-            cutoff_w = cutoff_values[:, w]
-            if kernel == "bartlett":
-                window *= np.abs(1 - dist / cutoff_w)
-            window[dist >= cutoff_w] = 0
-
-        xi_ri = residuals[i:i+1, :] * x_values[i:i+1, :].T
-        bartlett_for_i = xi_ri @ ((residuals.T * window[None, :]) @ x_values)
-
-        weight_matrix += bartlett_for_i
-        
     return weight_matrix
 
 
@@ -287,21 +295,9 @@ def _window_estimator_from_scores(data, scores, coordinates, cutoffs, kernel="ba
     coord_values = data[coordinates].to_numpy(dtype=float, copy=False)
     cutoff_values = np.column_stack([data[c].to_numpy(dtype=float, copy=False) for c in cutoffs])
 
-    n_obs, k = scores.shape
-    meat = np.zeros((k, k), dtype=float)
-
-    for i in range(n_obs):
-        window = np.ones(n_obs, dtype=float)
-
-        for w in range(coord_values.shape[1]):
-            dist = np.abs(coord_values[:, w] - coord_values[i, w])
-            cutoff_w = cutoff_values[:, w]
-            if kernel == "bartlett":
-                window *= np.abs(1 - dist / cutoff_w)
-            window[dist >= cutoff_w] = 0
-
-        weighted_sum = (window[:, None] * scores).sum(axis=0)  # (k,)
-        meat += np.outer(scores[i, :], weighted_sum)
+    # Vectorized: meat = scores.T @ W @ scores
+    W = _compute_weight_matrix(coord_values, cutoff_values, kernel)
+    meat = scores.T @ W @ scores  # (K, K)
 
     return meat
 
